@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "autocad-com-mcp"
+dynamic = ["version"]  # single source of truth: SERVER_VERSION in autocad_mcp/config.py
+description = "MCP server that lets AI assistants drive AutoCAD through its COM interface"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+keywords = ["autocad", "mcp", "model-context-protocol", "cad", "com", "automation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Multimedia :: Graphics :: Editors :: Vector-Based",
+]
+dependencies = [
+    "mcp>=1.0.0",
+    "pywin32>=306; sys_platform == 'win32'",  # AutoCAD COM automation is Windows-only
+]
+
+[project.scripts]
+autocad-com-mcp = "autocad_mcp.server:main"
+
+[tool.hatch.version]
+path = "autocad_mcp/config.py"
+pattern = 'SERVER_VERSION = "(?P<version>[^"]+)"'
+
+[tool.hatch.build.targets.wheel]
+packages = ["autocad_mcp"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "autocad_mcp/",
+    "test_mcp_tools.py",
+    "test_script.py",
+    "README.md",
+    "LICENSE",
+]
+exclude = ["__pycache__", "*.pyc"]
