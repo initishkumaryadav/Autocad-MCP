@@ -10,6 +10,8 @@
 ![AutoCAD](https://img.shields.io/badge/AutoCAD-COM%20Automation-E51050?logo=autodesk&logoColor=white)
 ![License](https://img.shields.io/badge/License-Apache%202.0-green)
 
+[Quick Start](#quick-start) · [Tools](#tool-reference) · [How It Works](#how-it-works) · [Troubleshooting](#troubleshooting)
+
 </div>
 
 ---
@@ -24,65 +26,40 @@ Instead of clicking through commands, you can tell the assistant:
 
 The assistant plans the steps and calls the server's tools, and the drawing appears in AutoCAD, organized on the right layers.
 
+## Contents
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Example Prompts](#example-prompts)
+- [Tool Reference](#tool-reference)
+- [How It Works](#how-it-works)
+- [Project Structure](#project-structure)
+- [Configuration](#configuration)
+- [Extending the Server](#extending-the-server)
+- [Troubleshooting](#troubleshooting)
+- [Limitations](#limitations)
+- [Acknowledgements](#acknowledgements) · [License](#license)
+
 ---
 
-## Key Features
+## Features
 
 | | Capability | Details |
 |---|---|---|
 | 🏗️ | **Architectural elements** | Walls, doors with swing arcs, windows with sill lines, and rooms, each with optional labels |
 | 🗂️ | **Automatic layers** | 11 standard layers (Walls, Doors, Windows, Electrical, Plumbing, HVAC, ...). Every element is placed on the right one automatically. |
-| ✏️ | **Drawing primitives** | Lines, circles, arcs, rectangles and text, with colors and optional wall thickness |
+| ✏️ | **Drawing primitives** | Lines, circles, arcs, rectangles and text, with colors and optional thickness |
 | 🔍 | **Drawing inspection** | Reads drawing info, layers and every entity with its type, layer, color, handle and geometry |
 | 🎨 | **Editing** | Recolors any entity by its handle |
 | 🧹 | **Targeted deletion** | Deletes by handle, type, layer, color, type + color, the most recent N entities, or everything (with confirmation) |
 | ↩️ | **View and history** | Undo and zoom-to-extents |
 | 🔌 | **Works with any MCP client** | Claude Desktop, Claude Code, MCP Inspector or a custom client |
 
-**21 tools** in total. See the [tool catalog](#tool-catalog).
+**21 tools** in total. See the [Tool Reference](#tool-reference).
 
 ---
 
-## How It Works
-
-```mermaid
-flowchart LR
-    U["👤 User<br/>natural language"] --> A["🤖 AI assistant<br/>(Claude / MCP client)"]
-    A -- "MCP tool calls<br/>(JSON-RPC over stdio)" --> S["⚙️ AutoCAD MCP Server<br/>Python"]
-    S -- "COM / ActiveX<br/>(pywin32)" --> C["📐 AutoCAD<br/>live drawing"]
-    C -- "handles, entities,<br/>drawing state" --> S
-    S -- "structured JSON results" --> A
-```
-
-1. The AI assistant gets the list of available tools and their input schemas from the server.
-2. For a request, it decides which tools to call and with what parameters.
-3. The server turns each call into AutoCAD COM automation commands, run against the live drawing.
-4. Results, including entity **handles**, go back to the assistant, so it can follow up with edits or deletions.
-
----
-
-## Tech Stack
-
-- **Python**: server implementation
-- **Model Context Protocol (MCP) SDK**: tool registration and stdio transport
-- **pywin32 / COM automation**: direct control of the AutoCAD application
-- **AutoCAD ActiveX API**: model space, layers, entities and views
-
----
-
-## Engineering Highlights
-
-- **Reliable COM data passing.** Coordinates are sent as typed `VARIANT` arrays, which avoids the type-conversion errors that plain Python lists cause in AutoCAD's API.
-- **Self-healing connection.** Every operation checks the AutoCAD session first and reconnects if it was lost, for example after a drawing is closed. If AutoCAD isn't running, the server starts it.
-- **Safe bulk deletion.** Entities are collected first and deleted afterwards, so deleting doesn't shift indexes and skip items. Deletion is throttled so AutoCAD isn't overloaded.
-- **Fast entity lookup.** Entities are found through AutoCAD's native handle lookup, with a fallback scan if that fails.
-- **Rule-based layer assignment.** A keyword map routes each element type ("outlet", "sink", "beam", ...) to the correct layer.
-- **Errors as data.** Every tool returns structured JSON (`success` / `error`) instead of crashing, so the AI can understand a failure and retry.
-- **Safety on destructive actions.** Clearing the whole drawing needs an explicit confirmation flag.
-
----
-
-## Getting Started
+## Quick Start
 
 ### Prerequisites
 
@@ -95,38 +72,48 @@ flowchart LR
 
 ```powershell
 git clone https://github.com/initishkumaryadav/Autocad-MCP.git
-cd autocad-mcp-server
+cd Autocad-MCP
 python -m venv venv
 venv\Scripts\activate
 pip install -e .
 ```
 
-### 2. Connect to Claude Desktop
+Check the dependencies installed correctly:
 
-Add this to `%APPDATA%\Claude\claude_desktop_config.json`, using your own path:
+```powershell
+python -c "import mcp, win32com.client; print('deps OK')"
+```
+
+If `win32com` fails to import, run `python venv\Scripts\pywin32_postinstall.py -install` once.
+
+### 2. Connect your MCP client
+
+**Claude Desktop:** add this to `%APPDATA%\Claude\claude_desktop_config.json`, using your own path:
 
 ```json
 {
   "mcpServers": {
     "autocad": {
-      "command": "C:\\path\\to\\autocad-mcp-server\\venv\\Scripts\\python.exe",
-      "args": ["-m", "autocad_mcp.server"]
+      "command": "C:\\path\\to\\Autocad-MCP\\venv\\Scripts\\python.exe",
+      "args": ["-m", "autocad_mcp"]
     }
   }
 }
 ```
 
-**Using Claude Code instead?** Run this one command:
+**Claude Code:** run one command:
 
 ```powershell
-claude mcp add autocad -- "C:\path\to\autocad-mcp-server\venv\Scripts\python.exe" -m autocad_mcp.server
+claude mcp add autocad -- "C:\path\to\Autocad-MCP\venv\Scripts\python.exe" -m autocad_mcp
 ```
+
+**Other clients:** configure a stdio server with the venv's `python.exe` and the args `-m autocad_mcp`. After `pip install -e .`, the `autocad-com-mcp` command does the same thing.
 
 ### 3. Use it
 
-1. Open AutoCAD with a drawing.
-2. Restart Claude Desktop, quitting it from the system tray first.
-3. Ask Claude to draw something.
+1. Open AutoCAD with a drawing. Start it before the client, otherwise the server launches a new AutoCAD instance.
+2. Restart your MCP client. For Claude Desktop, quit it from the system tray first.
+3. Ask the assistant to draw something.
 
 ---
 
@@ -142,19 +129,77 @@ claude mcp add autocad -- "C:\path\to\autocad-mcp-server\venv\Scripts\python.exe
 
 ---
 
-## Tool Catalog
+## Tool Reference
 
-| Category | Tools |
+Points are `[x, y]` or `[x, y, z]`. Angles are in degrees, counter-clockwise from the +X axis. Optional parameters show their default.
+
+### Query
+
+| Tool | Parameters | Returns |
+|---|---|---|
+| `get_drawing_info` | — | File name, path, saved state, active layer, entity count, all layers |
+| `get_entities` | `max_entities` (all) | Every entity with type, layer, handle, color and geometry, plus a per-layer summary |
+
+### Architecture & layers
+
+| Tool | Parameters | Notes |
+|---|---|---|
+| `create_structure` | `structure_type`, `geometry_data`, `color` (layer color), `thickness` (0), `custom_layer`, `label` | Types: wall, door, window, room, furniture, electrical, plumbing, hvac. The element goes on its standard layer automatically. |
+| `create_or_get_layer` | `layer_name`, `color` (white), `description` | Creates the layer only if it doesn't exist |
+| `set_current_layer` | `layer_name` | Makes the layer active |
+
+`geometry_data` by structure type:
+
+| Type | Keys |
 |---|---|
-| **Query** | `get_drawing_info`, `get_entities` |
-| **Architecture** | `create_structure` (wall, door, window, room, furniture, electrical, plumbing, hvac) |
-| **Primitives** | `create_line`, `create_circle`, `create_arc`, `create_rectangle`, `create_text` |
-| **Layers** | `create_or_get_layer`, `set_current_layer` |
-| **Edit** | `change_entity_color` |
-| **Delete** | `delete_entity_by_handle`, `delete_entities_by_handles`, `delete_entities_by_type`, `delete_entities_by_layer`, `delete_entities_by_color`, `delete_entities_by_type_and_color`, `delete_last_entities`, `delete_all_entities` |
-| **View** | `undo_last_operation`, `zoom_extents` |
+| wall, window | `start`, `end` |
+| door | `start`, `end`, optional `width` (draws a swing arc) |
+| room | `corner1`, `corner2` |
+| others | any of `start`/`end`, `center`/`radius`, or `corner1`/`corner2` |
 
-### Standard Layers
+### Primitives
+
+| Tool | Parameters |
+|---|---|
+| `create_line` | `start`, `end`, `color` (white), `thickness` (0) |
+| `create_circle` | `center`, `radius`, `color` (white), `thickness` (0) |
+| `create_arc` | `center`, `radius`, `start_angle`, `end_angle`, `color` (white), `thickness` (0) |
+| `create_rectangle` | `corner1`, `corner2`, `color` (white), `thickness` (0) |
+| `create_text` | `position`, `text`, `height` (1.0), `color` (white) |
+
+**Thickness** is drawn as outline geometry: a line becomes a closed strip, and circles and arcs get concentric inner and outer copies.
+
+### Edit, delete & view
+
+| Tool | Parameters |
+|---|---|
+| `change_entity_color` | `handle`, `color` |
+| `delete_entity_by_handle` | `handle` |
+| `delete_entities_by_handles` | `handles` |
+| `delete_entities_by_type` | `entity_type` (e.g. `AcDbLine`, `AcDbCircle`, `AcDbArc`, `AcDbText`) |
+| `delete_entities_by_layer` | `layer_name` |
+| `delete_entities_by_color` | `color` |
+| `delete_entities_by_type_and_color` | `entity_type`, `color` |
+| `delete_last_entities` | `count` (1) |
+| `delete_all_entities` | `confirm` (must be `true`) |
+| `undo_last_operation` | — |
+| `zoom_extents` | — |
+
+### Colors
+
+Use a name or an AutoCAD Color Index (ACI) number such as `"3"`.
+
+| Name | ACI | Name | ACI |
+|---|---|---|---|
+| red | 1 | magenta | 6 |
+| yellow | 2 | white | 7 |
+| green | 3 | gray | 8 |
+| cyan | 4 | light_gray | 9 |
+| blue | 5 | bylayer | 256 |
+
+### Standard layers
+
+Created automatically when the server connects to a drawing.
 
 | Layer | Color | | Layer | Color |
 |---|---|---|---|---|
@@ -165,42 +210,144 @@ claude mcp add autocad -- "C:\path\to\autocad-mcp-server\venv\Scripts\python.exe
 | ELECTRICAL | Red | | SITE | Green |
 | UTILITIES | Red | | | |
 
+### Responses
+
+Every tool returns JSON. Success responses include `"success": true` and the **handles** of the entities created, which you can pass to the edit and delete tools. Failures return `{"error": "..."}` instead of crashing, so the assistant can read the problem and retry.
+
+```json
+{
+  "success": true,
+  "structure_type": "wall",
+  "layer": "WALLS",
+  "handles": ["2A1", "2A2", "2A3", "2A4", "2A5"],
+  "message": "wall created on layer WALLS with label 'North Wall'"
+}
+```
+
+---
+
+## How It Works
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant AI as AI assistant
+    participant Server as AutoCAD MCP Server
+    participant CAD as AutoCAD
+
+    User->>AI: "Draw a wall from (0,0) to (10,0)"
+    AI->>Server: tool call: create_structure (JSON-RPC over stdio)
+    Server->>CAD: AddLine(...) via COM / pywin32
+    CAD-->>Server: new entity handles
+    Server-->>AI: JSON result with handles
+    AI-->>User: "Done: wall created on layer WALLS"
+```
+
+1. The assistant reads the list of tools and their input schemas from the server.
+2. For each request, it decides which tools to call and with what parameters.
+3. The server turns each call into AutoCAD COM automation, run against the live drawing.
+4. Results, including entity **handles**, go back to the assistant, so it can follow up with edits or deletions.
+
+### Design notes
+
+- **Reliable COM data passing.** Coordinates are sent as typed `VARIANT` arrays, which avoids the type-conversion errors that plain Python lists cause in AutoCAD's API.
+- **Self-healing connection.** Every operation checks the AutoCAD session first and reconnects if it was lost, for example after a drawing is closed. If AutoCAD isn't running, the server starts it.
+- **Paced COM calls.** A short pause after each entity keeps AutoCAD from rejecting calls while it's busy. This trades speed for reliability.
+- **Safe bulk deletion.** Entities are collected first and deleted afterwards, so deleting doesn't shift indexes and skip items.
+- **Rule-based layer assignment.** A keyword map routes each element type ("outlet", "sink", "beam", ...) to the correct layer.
+- **Safety on destructive actions.** Clearing the whole drawing needs an explicit confirmation flag.
+
+**Tech stack:** Python · MCP Python SDK · pywin32 (COM) · AutoCAD ActiveX API
+
 ---
 
 ## Project Structure
 
 ```
-autocad-mcp-server/
+Autocad-MCP/
 ├── autocad_mcp/
+│   ├── __main__.py        # enables `python -m autocad_mcp`
 │   ├── server.py          # MCP entry point: tool registration, dispatch, main()
-│   ├── tools.py           # Tool catalogue: name, description, schema, handler
-│   ├── config.py          # Colours, standard layers, timing constants
-│   ├── geometry.py        # Pure 2D math (offsets, midpoints, rectangles)
+│   ├── tools.py           # tool catalogue: name, description, schema, handler
+│   ├── config.py          # colors, standard layers, timing constants
+│   ├── geometry.py        # pure 2D math (offsets, midpoints, rectangles)
 │   ├── com.py             # pywin32 helpers (VARIANT points, paced COM calls)
 │   └── autocad/           # AutoCAD automation, independent of MCP
-│       ├── base.py        #   connection, colour lookup, shared helpers
+│       ├── base.py        #   connection, color lookup, shared helpers
 │       ├── layers.py      #   layer management
 │       ├── drawing.py     #   lines, circles, rectangles, text, arcs
 │       ├── structures.py  #   walls, doors, windows, rooms, labels
 │       ├── query.py       #   drawing info, entity listing
-│       └── editing.py     #   delete, recolour, undo, zoom
-├── test_mcp_tools.py      # End-to-end test of all 21 tools against live AutoCAD
-├── test_script.py         # COM connectivity smoke test
-└── pyproject.toml
+│       └── editing.py     #   delete, recolor, undo, zoom
+├── pyproject.toml
+└── LICENSE
+```
+
+The AutoCAD code doesn't depend on MCP, so you can script it directly from Python:
+
+```python
+from autocad_mcp import AutoCADClient
+
+cad = AutoCADClient()
+assert cad.connect_to_autocad(), "Start AutoCAD first"
+
+cad.create_structure("wall", {"start": [0, 0], "end": [20, 0]}, thickness=0.5, label="North Wall")
+cad.create_circle([10, 10], 2, color="red")
+cad.zoom_extents()
 ```
 
 ---
 
-## Testing
+## Configuration
 
-The project includes an **end-to-end integration suite** that runs every tool against a live AutoCAD session. It checks creation, layer assignment, querying, recoloring, every deletion mode, the error paths and cleanup.
+| Setting | Where | Purpose |
+|---|---|---|
+| `AUTOCAD_MCP_LOG_LEVEL` | environment variable | Set to `DEBUG` to log COM errors to stderr (default `WARNING`) |
+| `OPERATION_DELAY` and other delays | `autocad_mcp/config.py` | Pause after each COM call (default 1 s). Lower it for speed if AutoCAD keeps up. |
+| `LAYER_DEFINITIONS`, `STRUCTURE_KEYWORDS` | `autocad_mcp/config.py` | Standard layers and the keyword → layer mapping |
+| `SERVER_VERSION` | `autocad_mcp/config.py` | Package and server version |
+
+---
+
+## Extending the Server
+
+Adding a tool takes two steps:
+
+1. **Implement the operation** as a method in the matching mixin under `autocad_mcp/autocad/`. Decorate it with `@autocad_operation("<action>")` so it gets the connection check and error handling, and create entities through `self.add_to_model_space(...)`.
+2. **Register it** by appending a `ToolSpec` to `TOOLS` in `autocad_mcp/tools.py`. Listing and dispatch are automatic.
+
+To try tools by hand, use the MCP Inspector:
 
 ```powershell
-python test_mcp_tools.py
+npx @modelcontextprotocol/inspector "C:\path\to\Autocad-MCP\venv\Scripts\python.exe" -m autocad_mcp
 ```
 
-> ⚠️ The test clears the active drawing. Run it on a blank drawing.
+---
 
+## Troubleshooting
+
+| Symptom | What to do |
+|---|---|
+| `Not connected to AutoCAD` | Start AutoCAD and close any open dialogs or running commands, then retry |
+| A second, empty AutoCAD window appears | No running instance was found, so the server launched one. Start AutoCAD before your MCP client. |
+| Tools don't appear in Claude Desktop | Use the absolute path to the venv's `python.exe`, fully quit Claude from the tray, and check `%APPDATA%\Claude\logs\mcp*.log` |
+| `ModuleNotFoundError: autocad_mcp` | Run `pip install -e .` inside the venv |
+| `ModuleNotFoundError: win32com` or DLL errors | Run `python venv\Scripts\pywin32_postinstall.py -install` |
+| "Call was rejected by callee" | AutoCAD is busy. Press `Esc` in AutoCAD and avoid using it while tools run. |
+| Entities created but not visible | Call `zoom_extents`, then check layer states with `get_drawing_info` |
+| Some entities not deleted | They're on locked layers. Unlock the layer in AutoCAD. |
+| One undo didn't fully revert a tool call | One tool call can create several undo steps. Call `undo_last_operation` again, or delete by handle. |
+
+---
+
+## Limitations
+
+- Windows and full AutoCAD only (COM automation).
+- Model space only. There are no tools yet for saving, opening, plotting, blocks, dimensions or hatches.
+- Creation is deliberately paced, so large drawings take a while.
+- Connecting adds the 11 standard layers to whichever drawing is open.
+
+---
 
 ## Acknowledgements
 
